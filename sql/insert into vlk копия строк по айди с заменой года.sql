@@ -1,0 +1,4 @@
+INSERT INTO public.vlookup (brand, model, year, category, mtype, enginecylinder, displacement_ccm, power_hp, torque_nm, cylinders, engine_stroke, gearbox, bore_mm, stroke_mm, fuel_capacity_lts, fuel_system, fuel_control, cooling_system, drive, transmission_type, dry_weight_kg, wheelbase_mm, seat_height_mm, front_brakes, rear_brakes, front_tire, rear_tire, front_suspension, rear_suspension, color_options)
+SELECT brand, model, 2007, category, mtype, enginecylinder, displacement_ccm, power_hp, torque_nm, cylinders, engine_stroke, gearbox, bore_mm, stroke_mm, fuel_capacity_lts, fuel_system, fuel_control, cooling_system, drive, transmission_type, dry_weight_kg, wheelbase_mm, seat_height_mm, front_brakes, rear_brakes, front_tire, rear_tire, front_suspension, rear_suspension, color_options
+FROM public.vlookup
+WHERE id IN (28250, 29114);
