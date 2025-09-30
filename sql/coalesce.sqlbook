@@ -1,0 +1,22 @@
+-- SQLBook: Code
+SELECT
+    count(af.id) as id_count,
+    af.id,
+    brand, 
+    COALESCE(model_vlk_llm, model_vlk) as mvlk, 
+    af.price, 
+    string_agg(usd_eq ::text, '; ' ) as pr_change,
+    title
+FROM av_full af 
+LEFT JOIN av_organizations ao ON af.seller_id = ao.id
+LEFT JOIN av_price_history aph ON af.id = aph.id_av
+WHERE seller_id IS NOT NULL
+AND capacity >= 400
+GROUP BY af.id, brand, mvlk, af.price, title
+ORDER BY id_count
+--LIMIT 20
+
+-- SQLBook: Code
+SELECT *
+from av_price_history
+LIMIT 20
