@@ -1,0 +1,378 @@
+-- SQLBook: Code
+--Задача 1. Нумерация объявлений по бренду
+WITH ranked AS (
+    SELECT
+        *,
+        ROW_NUMBER() OVER (
+            PARTITION BY id
+            ORDER BY date DESC
+        ) AS rn
+    FROM av_full
+)
+SELECT
+    *
+FROM ranked
+WHERE rn = 1;
+-- SQLBook: Code
+WITH ranked AS (
+    SELECT
+        *,
+        ROW_NUMBER() OVER (
+            PARTITION BY seller
+            ORDER BY date DESC
+        ) AS rn
+    FROM av_full
+)
+SELECT
+    seller, brand
+FROM ranked
+WHERE rn = 1;
+-- SQLBook: Code
+--Задача 2. (ROW_NUMBER) Найти последнюю цену по каждому объявлению
+WITH ranked AS (
+    SELECT
+        *,
+        ROW_NUMBER() OVER (
+            PARTITION BY id_av
+            ORDER BY date DESC
+        ) AS rn
+    FROM av_price_history
+)
+SELECT
+    id_av, usd_eq
+FROM ranked
+WHERE rn = 1;
+-- SQLBook: Code
+--Задача 3. (LAG/LEAD) Посчитать разницу в цене между текущей и предыдущей записью для объявления
+SELECT
+    id_av,
+    date,
+    usd_eq,
+    LAG(usd_eq) OVER (
+        PARTITION BY id_av
+        ORDER BY date
+    ) AS prev_price,
+    usd_eq - LAG(usd_eq) OVER (
+        PARTITION BY id_av
+        ORDER BY date
+    ) AS price_diff
+FROM av_price_history
+ORDER BY id_av, date;
+-- SQLBook: Code
+
+-- Задача 4. Кумулятивная сумма стоимости объявлений бренда по времени
+SELECT
+    brand,
+    date,
+    price,
+    SUM(price) OVER (
+        PARTITION BY brand
+        ORDER BY date
+        ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+    ) AS running_brand_price
+FROM av_full
+ORDER BY brand, date;
+-- SQLBook: Code
+-- 1 ROW NUMBER для top-n по группе
+WITH ranked AS (
+    SELECT
+        *,
+        ROW_NUMBER() OVER (
+            PARTITION BY brand
+            ORDER BY price DESC
+        ) AS rn
+    FROM av_full
+    WHERE price >=2000
+)
+SELECT
+    brand, id, price
+FROM ranked
+WHERE rn <= 3;
+-- SQLBook: Code
+-- 1 ROW NUMBER для вывода без дублей
+WITH dup AS (
+    SELECT
+        *,
+        ROW_NUMBER() OVER (
+            PARTITION BY brand, model, year, mileage, seller, locations
+            ORDER BY date
+        ) AS rn
+    FROM av_full
+)
+SELECT *
+FROM dup
+WHERE rn > 1;  -- все «вторые и далее» в группе считаем дублями
+-- SQLBook: Code
+-- джоин последней цены из aph с объявой из avf
+WITH ranked AS (
+    SELECT
+        *,
+        ROW_NUMBER() OVER (
+            PARTITION BY id_av
+            ORDER BY date DESC
+        ) AS rn
+    FROM av_price_history
+)
+SELECT
+    r.id_av,
+    COALESCE(f.model_vlk_llm, f.model_vlk),
+    f.price,
+    r.usd_eq,
+    r.date
+FROM ranked r
+JOIN av_full f
+  ON f.id = r.id_av
+WHERE r.rn = 1;
+-- SQLBook: Code
+-- топ 3 самых дорогих объявления по локации и бренду ()
+with ranked as (
+    SELECT
+    *,
+    ROW_NUMBER() OVER(
+        PARTITION BY brand, locations
+        ORDER BY price DESC
+    ) as rn
+    FROM av_full
+)
+SELECT
+    brand, 
+    locations,
+    price,
+    rn
+FROM ranked
+WHERE rn <=3
+and cylinders >1
+and capacity >= 500
+and status = 'Продано'
+ORDER BY price desc
+
+-- SQLBook: Code
+--Задача B. Сумма всех цен продавца, и доля каждой машины в сумме продавца
+select
+    sum(price),
+    seller,
+    brand
+from av_full
+WHERE seller_id is NOT NULL
+GROUP BY seller, brand
+ORDER BY seller, sum(price) DESC
+-- SQLBook: Code
+with ranked as (
+    SELECT
+        brand,
+        seller,
+        price,
+        sum(price) OVER (
+            PARTITION BY seller, brand
+        ) as p_sum
+    FROM av_full
+    WHERE seller_id IS NOT NULL
+    AND cylinders >1
+    AND capacity >=500
+)
+SELECT
+*,
+price / p_sum * 100 as p_share
+FROM ranked
+order by p_sum desc
+
+
+-- SQLBook: Code
+-- корректное решение
+WITH seller_brand AS (
+    SELECT
+        seller,
+        brand,
+        SUM(price) AS brand_sum_for_seller
+    FROM av_full
+    WHERE seller_id IS NOT NULL
+      AND cylinders > 1
+      AND capacity >= 500
+      AND duplicate_flag is FALSE
+    GROUP BY seller, brand
+),
+seller_brand_with_total AS (
+    SELECT
+        seller,
+        brand,
+        brand_sum_for_seller,
+        SUM(brand_sum_for_seller) OVER (
+            PARTITION BY seller
+        ) AS seller_total
+    FROM seller_brand
+)
+SELECT
+    seller,
+    brand,
+    brand_sum_for_seller AS price,
+    seller_total         AS p_sum,
+    round(brand_sum_for_seller::numeric / NULLIF(seller_total, 0) * 100, 1) AS p_share
+FROM seller_brand_with_total
+ORDER BY p_sum DESC, seller ASC, p_share DESC;
+-- SQLBook: Code
+-- корректное решение с заменой на юрлицо
+WITH seller_brand AS (
+    SELECT
+        seller,
+        brand,
+        SUM(price) AS brand_sum_for_seller,
+        seller_id
+    FROM av_full
+    WHERE seller_id IS NOT NULL
+      AND cylinders > 1
+      AND capacity >= 500
+      AND duplicate_flag is FALSE
+    GROUP BY seller, brand, seller_id
+),
+seller_brand_with_total AS (
+    SELECT
+        seller,
+        brand,
+        brand_sum_for_seller,
+        SUM(brand_sum_for_seller) OVER (
+            PARTITION BY seller
+        ) AS seller_total,
+        seller_id
+    FROM seller_brand
+)
+SELECT
+    seller,
+    legal_name,
+    brand,
+    brand_sum_for_seller AS price,
+    seller_total         AS p_sum,
+    round(brand_sum_for_seller::numeric / NULLIF(seller_total, 0) * 100, 1) AS p_share
+FROM seller_brand_with_total sbwt
+join av_organizations ao on sbwt.seller_id = ao.id
+ORDER BY p_sum DESC, seller ASC, p_share DESC;
+-- SQLBook: Code
+-- поиск дублей через partition by
+WITH dup AS (
+    SELECT
+        *,
+        COUNT(*) OVER (
+            PARTITION BY brand, model, year, seller, locations
+        ) AS cnt
+    FROM av_full
+    WHERE
+        cylinders > 1
+    AND
+        capacity >= 500
+)
+SELECT *
+FROM dup
+WHERE cnt > 1
+ORDER BY brand, model, year, seller, locations, date;
+-- SQLBook: Code
+WITH dup AS (
+    SELECT
+        *,
+        COUNT(*) OVER (
+            PARTITION BY
+                brand,
+                model,
+                year,
+                type,
+                cylinders,
+                capacity,
+                LOWER(seller),
+                locations,
+                mileage
+        ) AS cnt
+    FROM av_full
+)
+SELECT *
+FROM dup
+WHERE cnt > 1
+ORDER BY brand, model, year, seller, locations, mileage, date;
+-- SQLBook: Code
+-- CTE именованный подзапрос (временная виртуальная таблица):
+WITH name1 AS (...),
+     name2 AS (...)
+SELECT ...
+FROM name1
+JOIN name2 ON ...;
+
+-- вложенный подзапрос
+SELECT ...
+FROM (
+    SELECT ...
+    FROM ...
+) AS t
+
+-- Оконные функции (window functions)
+функция(...) OVER (
+    PARTITION BY ...    -- как "группировка", но без схлопывания
+    ORDER BY ...        -- порядок внутри группы
+)
+Агрегатные в оконном режиме: SUM(), AVG(), COUNT(), MIN(), MAX().
+Нумераторы строк: ROW_NUMBER(), RANK(), DENSE_RANK().
+Смещения: LAG(), LEAD().
+
+-- Операции над множествами (set operations)
+UNION - объединение с удалением дублей (как SELECT DISTINCT поверх объединения).
+UNION ALL
+EXCEPT — вернёт строки, которые есть в select1, но нет в select2.
+INTERSECT
+Общее правило: оба селекта должны:
+
+иметь одинаковое количество колонок,
+с совместимыми типами по позициям.
+
+
+-- SQLBook: Code
+-- CTE (Common Table Expressions) — именованные подзапросы, которые создаются через WITH и могут использоваться как виртуальные таблицы внутри одного запроса.
+
+sql
+WITH tmp AS (
+    SELECT ...
+    FROM ...
+    WHERE ...
+)
+SELECT ...
+FROM tmp;
+
+Можно объявлять несколько CTE:
+
+sql
+WITH t1 AS (...),
+     t2 AS (...)
+SELECT ...
+FROM t1
+JOIN t2 ON ...;
+
+-- Оконные функции (window functions) — функции, которые считают значения по «окну» строк (группе = PARTITION BY), но не сгруппировывают строки, как GROUP BY, а добавляют новое вычисленное поле к каждой строке.
+
+Общий вид:
+
+sql
+ФУНКЦИЯ(...) OVER (
+    PARTITION BY ...
+    ORDER BY ...
+)
+
+Примеры:
+
+sql
+ROW_NUMBER() OVER (PARTITION BY brand ORDER BY price DESC)   -- нумерует строки внутри бренда
+LAG(price)  OVER (PARTITION BY brand ORDER BY date)          -- предыдущая цена по дате
+LEAD(price) OVER (PARTITION BY brand ORDER BY date)          -- следующая цена по дате
+SUM(price)  OVER (PARTITION BY brand)                        -- сумма цен по бренду
+
+Операции над множествами (set operations):
+
+Все они требуют одинаковой структуры SELECT’ов (кол-во и типы колонок):
+
+sql
+SELECT ...        -- A
+FROM ...
+
+UNION / UNION ALL / EXCEPT / INTERSECT
+
+SELECT ...        -- B
+FROM ...
+
+UNION — объединение A и B без дублей.
+UNION ALL — объединение A и B с сохранением дублей.
+EXCEPT — строки, которые есть в A, но нет в B.
+INTERSECT — строки, которые есть и в A, и в B.
